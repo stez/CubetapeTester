@@ -9,6 +9,7 @@ import it.stez78.cubetapetester.models.PairedDevice;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothSocket;
+import android.content.DialogInterface;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
@@ -16,12 +17,15 @@ import android.util.Log;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.Socket;
+import java.nio.charset.Charset;
 import java.util.UUID;
 
 public class PairedDeviceActivity extends AppCompatActivity {
@@ -36,9 +40,13 @@ public class PairedDeviceActivity extends AppCompatActivity {
     private TextView outputTv;
     private Button connectButton;
     private Button disconnectButton;
+    private Button sendMessageButton;
+    private EditText messageEditText;
     private BluetoothAdapter bluetoothAdapter;
     private Handler writeOnOutupHandler;
     private boolean connectionRunning = false;
+
+    private ConnectThread connectThread;
 
     String output = "*** IN ATTESA DI CONNESSIONE ***";
 
@@ -54,6 +62,8 @@ public class PairedDeviceActivity extends AppCompatActivity {
                         connectButton.setEnabled(true);
                         connectButton.setVisibility(View.INVISIBLE);
                         disconnectButton.setVisibility(View.VISIBLE);
+                        sendMessageButton.setVisibility(View.VISIBLE);
+                        messageEditText.setVisibility(View.VISIBLE);
                         if (msg.obj != null) {
                             output += msg.obj.toString();
                             outputTv.setText(output);
@@ -67,6 +77,10 @@ public class PairedDeviceActivity extends AppCompatActivity {
                             output += msg.obj.toString();
                             outputTv.setText(output);
                         }
+                        disconnectButton.setVisibility(View.INVISIBLE);
+                        sendMessageButton.setVisibility(View.INVISIBLE);
+                        messageEditText.setVisibility(View.INVISIBLE);
+                        connectButton.setVisibility(View.VISIBLE);
                         break;
                     case HANDLER_CONNECTION_CLOSED:
                         connectButton.setEnabled(true);
@@ -77,6 +91,8 @@ public class PairedDeviceActivity extends AppCompatActivity {
                             outputTv.setText(output);
                         }
                         disconnectButton.setVisibility(View.INVISIBLE);
+                        sendMessageButton.setVisibility(View.INVISIBLE);
+                        messageEditText.setVisibility(View.INVISIBLE);
                         connectButton.setVisibility(View.VISIBLE);
                         break;
                     case HANDLER_POST_MESSAGE:
@@ -99,6 +115,8 @@ public class PairedDeviceActivity extends AppCompatActivity {
         outputTv = findViewById(R.id.activity_paired_device_output_textview);
         connectButton = findViewById(R.id.activity_paired_device_connect_button);
         disconnectButton = findViewById(R.id.activity_paired_device_disconnect_button);
+        sendMessageButton = findViewById(R.id.activity_paired_device_message_send_button);
+        messageEditText = findViewById(R.id.activity_paired_device_message_edit_text);
 
         ActionBar actionBar = getSupportActionBar();
         if (actionBar != null){
@@ -110,7 +128,8 @@ public class PairedDeviceActivity extends AppCompatActivity {
             String BTAddress = device.getMacAddress();
             UUID SERIAL_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");
             BluetoothDevice btDevice = bluetoothAdapter.getRemoteDevice(BTAddress);
-            new ConnectThread(btDevice, SERIAL_UUID).start();
+            connectThread = new ConnectThread(btDevice, SERIAL_UUID);
+            connectThread.start();
             connectButton.setEnabled(false);
         });
         disconnectButton.setOnClickListener(view -> {
@@ -119,12 +138,28 @@ public class PairedDeviceActivity extends AppCompatActivity {
             m.obj = "Dispositivo disconnesso";
             writeOnOutupHandler.sendMessage(m);
         });
+        sendMessageButton.setOnClickListener(view -> {
+            String msg = messageEditText.getText().toString();
+            connectThread.write(msg.getBytes());
+        });
+
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (connectThread != null){
+            connectThread.cancel();
+        }
+        finish();
     }
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         switch (item.getItemId()) {
             case android.R.id.home:
+                if (connectThread != null){
+                    connectThread.cancel();
+                }
                 NavUtils.navigateUpFromSameTask(this);
                 return true;
         }
@@ -199,7 +234,25 @@ public class PairedDeviceActivity extends AppCompatActivity {
             writeOnOutupHandler.sendMessage(m);
             connectionRunning = true;
             manageMyConnectedSocket(mmSocket);
+            try {
+                mmSocket.getOutputStream().write(5);
+            } catch (IOException e){
+
+            }
+
         }
+
+        public void write(byte[] bytes) {
+            try {
+                OutputStream mmOutStream = mmSocket.getOutputStream();
+                String text = new String(bytes, Charset.defaultCharset());
+                Log.d(TAG, "write: Writing to outputstream: " + text);
+                mmOutStream.write(bytes);
+            } catch (IOException e) {
+                Log.e(TAG, "Error occurred when sending data", e);
+            }
+        }
+
 
         public void cancel() {
             try {
